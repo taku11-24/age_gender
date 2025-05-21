@@ -1,4 +1,4 @@
-from flask import Flask, request,jsonify
+from flask import Flask, request, render_template_string 
 import cv2 as cv
 import numpy as np
 
@@ -63,48 +63,53 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/api/detect', methods=['POST'])
-def detect_api():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    file = request.files['file']
-    file_bytes = np.frombuffer(file.read(), np.uint8)
-    img = cv.imdecode(file_bytes, cv.IMREAD_COLOR)
-    if img is None:
-        return jsonify({'error': 'Invalid image'}), 400
-
-    bboxes = getFaceBox(faceNet, img)
-    if not bboxes:
-        return jsonify({'error': 'No face detected'}), 200
-
-    padding = 20
+@app.route('/', methods=['GET', 'POST'])
+def detect():
     results = []
-    for bbox in bboxes:
-        x1 = max(0, bbox[0] - padding)
-        y1 = max(0, bbox[1] - padding)
-        x2 = min(bbox[2] + padding, img.shape[1] - 1)
-        y2 = min(bbox[3] + padding, img.shape[0] - 1)
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if file:
+            file_bytes = np.frombuffer(file.read(), np.uint8)
+            img = cv.imdecode(file_bytes, cv.IMREAD_COLOR)
+            if img is None:
+                return "Could not read the image", 400
 
-        if x2 <= x1 or y2 <= y1:
-            continue
+            bboxes = getFaceBox(faceNet, img)
+            if not bboxes:
+                return render_template_string(HTML_TEMPLATE, results=[])
 
-        face = img[y1:y2, x1:x2]
-        if face.size == 0:
-            continue
+            padding = 20
+            for bbox in bboxes:
+                x1 = max(0, bbox[0] - padding)
+                y1 = max(0, bbox[1] - padding)
+                x2 = min(bbox[2] + padding, img.shape[1] - 1)
+                y2 = min(bbox[3] + padding, img.shape[0] - 1)
 
-        blob = cv.dnn.blobFromImage(face, 1.0, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
+                if x2 <= x1 or y2 <= y1:
+                    continue
 
-        genderNet.setInput(blob)
-        genderPreds = genderNet.forward()
-        gender = genderList[genderPreds[0].argmax()]
+                face = img[y1:y2, x1:x2]
+                if face.size == 0:
+                    continue
 
-        ageNet.setInput(blob)
-        agePreds = ageNet.forward()
-        age = ageList[agePreds[0].argmax()]
+                blob = cv.dnn.blobFromImage(face, 1.0, (227, 227), MODEL_MEAN_VALUES, swapRB=False)
 
-        results.append({'gender': gender, 'age': age})
+                genderNet.setInput(blob)
+                genderPreds = genderNet.forward()
+                gender = genderList[genderPreds[0].argmax()]
 
-    return jsonify(results)
+                ageNet.setInput(blob)
+                agePreds = ageNet.forward()
+                age = ageList[agePreds[0].argmax()]
+
+                results.append({
+                    'gender': gender,
+                    'age': age
+                })
+
+    return render_template_string(HTML_TEMPLATE, results=results)
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
